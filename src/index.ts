@@ -36,7 +36,7 @@ async function upsertServerSnapshot(snapshot: ServerSnapshot) {
 
   await pool.query(
     `
-      insert into public.server_snapshots (addr, payload, updated_at)
+      insert into realtime.server_snapshots (addr, payload, updated_at)
       values ($1, $2::jsonb, now())
       on conflict (addr) do update
       set payload = excluded.payload,
@@ -89,7 +89,7 @@ app.get("/health", async (_request, response) => {
 app.get("/api/servers/:addr", async (request, response) => {
   const addr = decodeURIComponent(request.params.addr);
   const result = await pool.query(
-    "select payload, updated_at from public.server_snapshots where addr = $1",
+    "select payload, updated_at from realtime.server_snapshots where addr = $1",
     [addr]
   );
 
@@ -119,7 +119,7 @@ app.post("/api/servers/lookup", async (request, response) => {
   }
 
   const result = await pool.query(
-    "select payload from public.server_snapshots where addr = any($1::text[])",
+    "select payload from realtime.server_snapshots where addr = any($1::text[])",
     [addrs]
   );
 
@@ -177,7 +177,7 @@ io.on("connection", (socket) => {
     }
 
     const result = await pool.query(
-      "select payload from public.server_snapshots where addr = any($1::text[])",
+      "select payload from realtime.server_snapshots where addr = any($1::text[])",
       [parsed]
     );
 
