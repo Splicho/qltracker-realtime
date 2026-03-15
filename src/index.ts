@@ -6,7 +6,11 @@ import { config } from "./config.js";
 import { pool } from "./db.js";
 import { enrichSnapshots } from "./enrichment.js";
 import { fetchSteamSnapshots } from "./steam.js";
-import { serverSnapshotSchema, type ServerSnapshot } from "./types.js";
+import {
+  serverSnapshotSchema,
+  type PlayerPresence,
+  type ServerSnapshot,
+} from "./types.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -24,8 +28,15 @@ app.use(
 );
 app.use(express.json({ limit: "1mb" }));
 
+let playerPresenceBySteamId = new Map<string, PlayerPresence>();
+let snapshotsByAddr = new Map<string, ServerSnapshot>();
+
 function getRoomName(addr: string) {
   return `server:${addr}`;
+}
+
+function getPresenceRoomName(steamId: string) {
+  return `presence:${steamId}`;
 }
 
 async function upsertServerSnapshot(snapshot: ServerSnapshot) {
@@ -53,6 +64,78 @@ async function broadcastSnapshot(snapshot: ServerSnapshot) {
   io.emit("server:snapshot", snapshot);
 }
 
+function buildPlayerPresenceIndex(snapshots: ServerSnapshot[]) {
+  const nextIndex = new Map<string, PlayerPresence>();
+
+  for (const snapshot of snapshots) {
+    for (const player of snapshot.playersInfo) {
+      const steamId = player.steamId?.trim();
+      if (!steamId) {
+        continue;
+      }
+
+      nextIndex.set(steamId, {
+        steamId,
+        playerName: player.name,
+        addr: snapshot.addr,
+        serverName: snapshot.name,
+        map: snapshot.map,
+        gameMode: snapshot.gameMode ?? null,
+        team: player.team ?? null,
+        players: snapshot.players,
+        maxPlayers: snapshot.maxPlayers,
+        countryCode: snapshot.countryCode ?? null,
+        countryName: snapshot.countryName ?? null,
+        updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
+      });
+    }
+  }
+
+  return nextIndex;
+}
+
+function replaceSnapshotsIndex(snapshots: ServerSnapshot[]) {
+  snapshotsByAddr = new Map(
+    snapshots.map((snapshot) => [snapshot.addr, snapshot] as const)
+  );
+}
+
+function haveSamePresence(
+  left: PlayerPresence | null | undefined,
+  right: PlayerPresence | null | undefined
+) {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function broadcastPlayerPresenceChanges(nextIndex: Map<string, PlayerPresence>) {
+  const steamIds = new Set([
+    ...playerPresenceBySteamId.keys(),
+    ...nextIndex.keys(),
+  ]);
+
+  for (const steamId of steamIds) {
+    const currentPresence = playerPresenceBySteamId.get(steamId) ?? null;
+    const nextPresence = nextIndex.get(steamId) ?? null;
+
+    if (haveSamePresence(currentPresence, nextPresence)) {
+      continue;
+    }
+
+    io.to(getPresenceRoomName(steamId)).emit("player:presence", {
+      steamId,
+      presence: nextPresence,
+    });
+  }
+
+  playerPresenceBySteamId = nextIndex;
+}
+
+function rebuildAndBroadcastPlayerPresence() {
+  broadcastPlayerPresenceChanges(
+    buildPlayerPresenceIndex(Array.from(snapshotsByAddr.values()))
+  );
+}
+
 async function runPollCycle() {
   if (!config.steamApiKey) {
     return;
@@ -60,11 +143,14 @@ async function runPollCycle() {
 
   const snapshots = await fetchSteamSnapshots();
   const enrichedSnapshots = await enrichSnapshots(snapshots);
+  replaceSnapshotsIndex(enrichedSnapshots);
 
   for (const snapshot of enrichedSnapshots) {
     const storedSnapshot = await upsertServerSnapshot(snapshot);
     await broadcastSnapshot(storedSnapshot);
   }
+
+  rebuildAndBroadcastPlayerPresence();
 
   console.log(`qltracker-realtime synced ${enrichedSnapshots.length} snapshots`);
 }
@@ -129,6 +215,16 @@ app.post("/api/servers/lookup", async (request, response) => {
   });
 });
 
+app.get("/api/presence/:steamId", (request, response) => {
+  const steamId = decodeURIComponent(request.params.steamId).trim();
+  const presence = steamId ? (playerPresenceBySteamId.get(steamId) ?? null) : null;
+
+  response.json({
+    ok: true,
+    presence,
+  });
+});
+
 app.post("/api/ingest/server-snapshot", async (request, response) => {
   if (!isAuthorizedIngestRequest(request)) {
     response.status(401).json({ ok: false, error: "Unauthorized." });
@@ -146,6 +242,8 @@ app.post("/api/ingest/server-snapshot", async (request, response) => {
   }
 
   const snapshot = await upsertServerSnapshot(parsedSnapshot.data);
+  snapshotsByAddr.set(snapshot.addr, snapshot);
+  rebuildAndBroadcastPlayerPresence();
 
   await broadcastSnapshot(snapshot);
 
@@ -184,6 +282,36 @@ io.on("connection", (socket) => {
     for (const row of result.rows) {
       socket.emit("server:snapshot", row.payload);
     }
+  });
+
+  socket.on("presence:subscribe", (payload: unknown) => {
+    const steamId =
+      typeof (payload as { steamId?: unknown })?.steamId === "string"
+        ? (payload as { steamId: string }).steamId.trim()
+        : "";
+
+    if (!steamId) {
+      return;
+    }
+
+    void socket.join(getPresenceRoomName(steamId));
+    socket.emit("player:presence", {
+      steamId,
+      presence: playerPresenceBySteamId.get(steamId) ?? null,
+    });
+  });
+
+  socket.on("presence:unsubscribe", (payload: unknown) => {
+    const steamId =
+      typeof (payload as { steamId?: unknown })?.steamId === "string"
+        ? (payload as { steamId: string }).steamId.trim()
+        : "";
+
+    if (!steamId) {
+      return;
+    }
+
+    void socket.leave(getPresenceRoomName(steamId));
   });
 });
 

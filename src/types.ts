@@ -47,3 +47,18 @@ export type ServerCountryLocation = {
   country_name: string | null;
   ip: string;
 };
+
+export type PlayerPresence = {
+  steamId: string;
+  playerName: string;
+  addr: string;
+  serverName: string;
+  map: string;
+  gameMode: string | null;
+  team: number | null;
+  players: number;
+  maxPlayers: number;
+  countryCode: string | null;
+  countryName: string | null;
+  updatedAt: string;
+};
