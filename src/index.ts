@@ -4,6 +4,8 @@ import http from "node:http";
 import { Server } from "socket.io";
 import { config } from "./config.js";
 import { pool } from "./db.js";
+import { enrichSnapshots } from "./enrichment.js";
+import { fetchSteamSnapshots } from "./steam.js";
 import { serverSnapshotSchema, type ServerSnapshot } from "./types.js";
 
 const app = express();
@@ -46,6 +48,27 @@ async function upsertServerSnapshot(snapshot: ServerSnapshot) {
   return normalizedSnapshot;
 }
 
+async function broadcastSnapshot(snapshot: ServerSnapshot) {
+  io.to(getRoomName(snapshot.addr)).emit("server:snapshot", snapshot);
+  io.emit("server:snapshot", snapshot);
+}
+
+async function runPollCycle() {
+  if (!config.steamApiKey) {
+    return;
+  }
+
+  const snapshots = await fetchSteamSnapshots();
+  const enrichedSnapshots = await enrichSnapshots(snapshots);
+
+  for (const snapshot of enrichedSnapshots) {
+    const storedSnapshot = await upsertServerSnapshot(snapshot);
+    await broadcastSnapshot(storedSnapshot);
+  }
+
+  console.log(`qltracker-realtime synced ${enrichedSnapshots.length} snapshots`);
+}
+
 function isAuthorizedIngestRequest(request: express.Request) {
   const headerToken =
     request.header("x-api-key") ??
@@ -82,6 +105,30 @@ app.get("/api/servers/:addr", async (request, response) => {
   });
 });
 
+app.post("/api/servers/lookup", async (request, response) => {
+  const addrs = Array.isArray((request.body as { addrs?: unknown })?.addrs)
+    ? ((request.body as { addrs: unknown[] }).addrs
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0))
+    : [];
+
+  if (addrs.length === 0) {
+    response.json({ ok: true, snapshots: [] });
+    return;
+  }
+
+  const result = await pool.query(
+    "select payload from public.server_snapshots where addr = any($1::text[])",
+    [addrs]
+  );
+
+  response.json({
+    ok: true,
+    snapshots: result.rows.map((row) => row.payload),
+  });
+});
+
 app.post("/api/ingest/server-snapshot", async (request, response) => {
   if (!isAuthorizedIngestRequest(request)) {
     response.status(401).json({ ok: false, error: "Unauthorized." });
@@ -100,8 +147,7 @@ app.post("/api/ingest/server-snapshot", async (request, response) => {
 
   const snapshot = await upsertServerSnapshot(parsedSnapshot.data);
 
-  io.to(getRoomName(snapshot.addr)).emit("server:snapshot", snapshot);
-  io.emit("server:snapshot", snapshot);
+  await broadcastSnapshot(snapshot);
 
   response.status(202).json({
     ok: true,
@@ -143,4 +189,21 @@ io.on("connection", (socket) => {
 
 server.listen(config.port, () => {
   console.log(`qltracker-realtime listening on port ${config.port}`);
+
+  if (!config.steamApiKey) {
+    console.warn(
+      "STEAM_API_KEY is not configured. Automatic Steam polling is disabled."
+    );
+    return;
+  }
+
+  void runPollCycle().catch((error: unknown) => {
+    console.error("Initial Steam sync failed:", error);
+  });
+
+  setInterval(() => {
+    void runPollCycle().catch((error: unknown) => {
+      console.error("Steam sync failed:", error);
+    });
+  }, config.pollIntervalMs);
 });

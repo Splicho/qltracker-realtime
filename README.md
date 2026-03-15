@@ -5,6 +5,7 @@ Small self-hosted Socket.IO + Postgres backend for QLTracker.
 ## What it does
 
 - accepts normalized server snapshots over HTTP
+- can poll Steam directly for baseline server snapshots
 - persists the latest snapshot in Postgres
 - broadcasts live updates over Socket.IO
 - lets clients subscribe to specific server addresses

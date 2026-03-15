@@ -5,7 +5,14 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3011),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   CORS_ORIGIN: z.string().default("*"),
+  POLL_INTERVAL_MS: z.coerce.number().int().positive().default(30000),
+  QLSTATS_API_URL: z.string().default("https://qlstats.net/api"),
   REALTIME_INGEST_TOKEN: z.string().min(1, "REALTIME_INGEST_TOKEN is required"),
+  STEAM_API_KEY: z.string().optional(),
+  STEAM_APP_ID: z.string().default("282440"),
+  TRUESKILL_URL_TEMPLATE: z
+    .string()
+    .default("http://qlrelax.freemyip.com/elo/bn/%s"),
 });
 
 const parsedEnv = envSchema.parse(process.env);
@@ -19,5 +26,10 @@ export const config = {
           .filter((value) => value.length > 0),
   databaseUrl: parsedEnv.DATABASE_URL,
   ingestToken: parsedEnv.REALTIME_INGEST_TOKEN,
+  pollIntervalMs: parsedEnv.POLL_INTERVAL_MS,
   port: parsedEnv.PORT,
+  qlstatsApiUrl: parsedEnv.QLSTATS_API_URL.trim().replace(/\/+$/, ""),
+  steamApiKey: parsedEnv.STEAM_API_KEY?.trim() ?? "",
+  steamAppId: parsedEnv.STEAM_APP_ID.trim() || "282440",
+  trueskillUrlTemplate: parsedEnv.TRUESKILL_URL_TEMPLATE.trim(),
 };
