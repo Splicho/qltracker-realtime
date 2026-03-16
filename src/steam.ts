@@ -121,7 +121,7 @@ export async function fetchSteamSnapshots() {
   const url = new URL(steamServerListUrl);
   url.searchParams.set("key", config.steamApiKey);
   url.searchParams.set("filter", `\\appid\\${config.steamAppId}`);
-  url.searchParams.set("limit", "500");
+  url.searchParams.set("limit", String(config.steamServerLimit));
 
   const response = await fetch(url, {
     headers: {

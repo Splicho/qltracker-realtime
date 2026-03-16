@@ -11,6 +11,7 @@ const envSchema = z.object({
   REALTIME_INGEST_TOKEN: z.string().min(1, "REALTIME_INGEST_TOKEN is required"),
   STEAM_API_KEY: z.string().optional(),
   STEAM_APP_ID: z.string().default("282440"),
+  STEAM_SERVER_LIMIT: z.coerce.number().int().positive().default(500),
   TRUESKILL_URL_TEMPLATE: z
     .string()
     .default("http://qlrelax.freemyip.com/elo/bn/%s"),
@@ -33,5 +34,6 @@ export const config = {
   qlstatsApiUrl: parsedEnv.QLSTATS_API_URL.trim().replace(/\/+$/, ""),
   steamApiKey: parsedEnv.STEAM_API_KEY?.trim() ?? "",
   steamAppId: parsedEnv.STEAM_APP_ID.trim() || "282440",
+  steamServerLimit: parsedEnv.STEAM_SERVER_LIMIT,
   trueskillUrlTemplate: parsedEnv.TRUESKILL_URL_TEMPLATE.trim(),
 };
