@@ -7,6 +7,7 @@ Small self-hosted Socket.IO + Postgres backend for QLTracker.
 - accepts normalized server snapshots over HTTP
 - can poll Steam directly for baseline server snapshots
 - persists the latest snapshot in Postgres
+- persists player name history per SteamID in Postgres
 - samples server history on a fixed interval for 7-day charts
 - broadcasts live updates over Socket.IO
 - lets clients subscribe to specific server addresses
@@ -27,6 +28,8 @@ Small self-hosted Socket.IO + Postgres backend for QLTracker.
 - `POST /api/servers/lookup`
 - `GET /api/presence/:steamId`
 - `POST /api/presence/lookup`
+- `GET /api/players/:steamId/name-history`
+- `POST /api/players/name-history/lookup`
 - `POST /api/ingest/server-snapshot`
 
 ## Socket events

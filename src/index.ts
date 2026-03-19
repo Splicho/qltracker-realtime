@@ -11,6 +11,11 @@ import {
   getHistorySampleTime,
   upsertServerHistorySamples,
 } from "./history.js";
+import {
+  fetchPlayerNameHistory,
+  fetchPlayerNameHistoryLookup,
+  upsertPlayerNameHistory,
+} from "./player-name-history.js";
 import { fetchSteamSnapshots } from "./steam.js";
 import {
   serverSnapshotSchema,
@@ -187,6 +192,7 @@ async function runPollCycle() {
   const snapshots = await fetchSteamSnapshots();
   const enrichedSnapshots = await enrichSnapshots(snapshots);
   replaceSnapshotsIndex(enrichedSnapshots);
+  await upsertPlayerNameHistory(enrichedSnapshots);
 
   for (const snapshot of enrichedSnapshots) {
     const storedSnapshot = await upsertServerSnapshot(snapshot);
@@ -306,6 +312,30 @@ app.post("/api/presence/lookup", (request, response) => {
   });
 });
 
+app.get("/api/players/:steamId/name-history", async (request, response) => {
+  const steamId = decodeURIComponent(request.params.steamId).trim();
+  if (!steamId) {
+    response.status(400).json({ ok: false, error: "SteamID is required." });
+    return;
+  }
+
+  response.json({
+    ok: true,
+    names: await fetchPlayerNameHistory(steamId),
+  });
+});
+
+app.post("/api/players/name-history/lookup", async (request, response) => {
+  const steamIds = normalizeStringArray(
+    (request.body as { steamIds?: unknown })?.steamIds
+  );
+
+  response.json({
+    ok: true,
+    histories: await fetchPlayerNameHistoryLookup(steamIds),
+  });
+});
+
 app.post("/api/ingest/server-snapshot", async (request, response) => {
   if (!isAuthorizedIngestRequest(request)) {
     response.status(401).json({ ok: false, error: "Unauthorized." });
@@ -323,6 +353,7 @@ app.post("/api/ingest/server-snapshot", async (request, response) => {
   }
 
   const snapshot = await upsertServerSnapshot(parsedSnapshot.data);
+  await upsertPlayerNameHistory([snapshot]);
   snapshotsByAddr.set(snapshot.addr, snapshot);
   rebuildAndBroadcastPlayerPresence();
   await maybeCollectHistorySnapshots(Array.from(snapshotsByAddr.values()));

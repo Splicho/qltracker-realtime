@@ -24,3 +24,17 @@ create index if not exists server_history_samples_addr_sampled_at_idx
 
 create index if not exists server_history_samples_sampled_at_idx
   on realtime.server_history_samples (sampled_at desc);
+
+create table if not exists realtime.player_name_history (
+  steam_id text not null,
+  player_name text not null,
+  first_seen_at timestamptz not null default now(),
+  last_seen_at timestamptz not null default now(),
+  last_seen_addr text,
+  last_seen_server_name text,
+  seen_count integer not null default 1,
+  primary key (steam_id, player_name)
+);
+
+create index if not exists player_name_history_steam_id_last_seen_at_idx
+  on realtime.player_name_history (steam_id, last_seen_at desc);

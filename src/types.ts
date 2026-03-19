@@ -63,6 +63,15 @@ export type PlayerPresence = {
   updatedAt: string;
 };
 
+export type PlayerNameHistoryEntry = {
+  playerName: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastSeenAddr: string | null;
+  lastSeenServerName: string | null;
+  seenCount: number;
+};
+
 export type ServerHistoryPoint = {
   timestamp: string;
   players: number;
